@@ -24,7 +24,7 @@ function propShape(prop: PropInfo): PropShape {
   };
 }
 
-function loadParentInfo() {
+function loadParentInfo(vueVersion: VueVersion = VueVersion.V30) {
   const configPath = path.join(fixtureDir, 'tsconfig.json');
   const configFile = ts.readConfigFile(configPath, ts.sys.readFile);
   const parsed = ts.parseJsonConfigFileContent(configFile.config, ts.sys, fixtureDir);
@@ -50,7 +50,7 @@ function loadParentInfo() {
   const parentPath = parsed.fileNames.find(fileName => fileName.endsWith('parent.ts'));
   assert.ok(parentPath, 'parent.ts missing from fixture program');
 
-  return getComponentInfo(ts, service, parentPath!, [], VueVersion.V30, {
+  return getComponentInfo(ts, service, parentPath!, [], vueVersion, {
     vetur: { completion: { tagCasing: 'pascal' } }
   });
 }
@@ -76,5 +76,18 @@ suite('ComponentPublicInstance props', () => {
     ]);
     assert.strictEqual(byName.get('EmptyChild'), undefined);
     assert.strictEqual(byName.get('PlainClassChild'), undefined);
+  });
+
+  test('reads Props from the Vue 2 CombinedVueInstance type argument', function () {
+    this.timeout(20000);
+    const info = loadParentInfo(VueVersion.V25);
+    const children = info?.componentInfo.childComponents ?? [];
+    const byName = new Map(children.map(child => [child.name, child.info?.componentInfo.props]));
+
+    assert.deepStrictEqual((byName.get('Vue2Child') ?? []).map(propShape), [
+      { name: 'value', required: true, typeString: 'string', hasObjectValidator: false },
+      { name: 'count', required: false, typeString: 'number | undefined', hasObjectValidator: false }
+    ]);
+    assert.strictEqual(byName.get('AnyChild'), undefined);
   });
 });
