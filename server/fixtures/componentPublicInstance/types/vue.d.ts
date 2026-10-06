@@ -30,8 +30,9 @@ export type ComponentPublicInstance<
 } & P;
 
 /**
- * Props-relevant slice of Vue 2.6/2.7 `CombinedVueInstance`.
- * Props remains parameter 4; Vue 2.7 only appends setup/mixin parameters.
+ * Props-relevant Vue 2.6/2.7 surface. Props remains argument 4 of
+ * `CombinedVueInstance`; `Vue.extend` exposes the same Props argument
+ * through `ExtendedVue`.
  */
 export type CombinedVueInstance<
   Instance = {},
@@ -41,3 +42,24 @@ export type CombinedVueInstance<
   Props = {},
   SetupBindings = {}
 > = Data & Methods & Computed & Props & Instance & SetupBindings;
+
+export interface VueConstructor<V = {}> {
+  new (): V;
+}
+
+export type ExtendedVue<
+  Instance = {},
+  Data = {},
+  Methods = {},
+  Computed = {},
+  Props = {},
+  SetupBindings = {}
+> = VueConstructor<CombinedVueInstance<Instance, Data, Methods, Computed, Props, SetupBindings>>;
+
+declare const Vue: {
+  extend<Data = {}, Methods = {}, Computed = {}, Props = {}>(
+    options: {}
+  ): ExtendedVue<{}, Data, Methods, Computed, Props>;
+};
+
+export default Vue;
