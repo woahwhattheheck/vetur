@@ -352,7 +352,7 @@ function getProps(
   const declaredProps = getClassAndObjectInfo(tsModule, defaultExportType, checker, getClassProps, getObjectProps);
   const result: PropInfo[] = markPropBoundToModel(
     defaultExportType,
-    declaredProps.length > 0 ? declaredProps : getPropsFromComponentPublicInstance(defaultExportType)
+    declaredProps.length > 0 ? declaredProps : getPropsFromTypedVueInstance(defaultExportType)
   );
 
   return result.length === 0 ? undefined : result;
@@ -600,29 +600,32 @@ function getProps(
   }
 
   /**
-   * Vue 3 `ComponentPublicInstance` parameter 0 is `P`, "props type extracted
-   * from props option". `$props` is `P & PublicProps` (or the defaults
-   * conditional when `MakeDefaultsOptional` is true). When runtime/decorator
-   * props are unavailable, read `P` directly. This covers the ordinary typed
-   * instance as well as cases where `$props` is `any` or index-eroded.
-   * `PublicProps` (parameter 6) defaults to `P`. `Defaults` (parameter 7) is
-   * not the props object.
+   * When runtime/decorator props are unavailable, recover the component props
+   * type from Vue's public instance aliases:
+   *
+   * - Vue 2 `CombinedVueInstance`: parameter 4 is `Props` in both 2.6 and 2.7.
+   * - Vue 3 `ComponentPublicInstance`: parameter 0 is `P`.
+   *
+   * Runtime/decorator declarations stay authoritative when present.
    */
-  function getPropsFromComponentPublicInstance(type: ts.Type): PropInfo[] {
+  function getPropsFromTypedVueInstance(type: ts.Type): PropInfo[] {
+    const aliasName = vueVersion === VueVersion.V30 ? 'ComponentPublicInstance' : 'CombinedVueInstance';
+    const propsIndex = vueVersion === VueVersion.V30 ? 0 : 4;
     const instanceType = resolveInstanceType(type);
-    const publicInstance = findComponentPublicInstance(type) ?? findComponentPublicInstance(instanceType);
-    if (!publicInstance) {
+    const typedInstance =
+      findTypedVueInstance(type, aliasName) ?? findTypedVueInstance(instanceType, aliasName);
+    if (!typedInstance) {
       return [];
     }
 
-    const propsType = publicInstance.aliasTypeArguments?.[0];
+    const propsType = typedInstance.aliasTypeArguments?.[propsIndex];
     if (!propsType || isUnusablePropsType(propsType)) {
       return [];
     }
 
     const fallbackNode =
       propsType.symbol?.valueDeclaration ??
-      publicInstance.aliasSymbol?.declarations?.[0] ??
+      typedInstance.aliasSymbol?.declarations?.[0] ??
       defaultExportType.symbol?.valueDeclaration;
 
     return checker.getPropertiesOfType(propsType).map(propSymbol => {
@@ -648,7 +651,7 @@ function getProps(
     return checker.getReturnTypeOfSignature(signatures[signatures.length - 1]);
   }
 
-  function findComponentPublicInstance(root: ts.Type): ts.Type | undefined {
+  function findTypedVueInstance(root: ts.Type, aliasName: string): ts.Type | undefined {
     const seen = new Set<ts.Type>();
 
     const visit = (type: ts.Type | undefined): ts.Type | undefined => {
@@ -657,7 +660,7 @@ function getProps(
       }
       seen.add(type);
 
-      if (type.aliasSymbol?.name === 'ComponentPublicInstance') {
+      if (type.aliasSymbol?.name === aliasName) {
         return type;
       }
 
