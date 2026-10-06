@@ -602,8 +602,9 @@ function getProps(
   /**
    * Vue 3 `ComponentPublicInstance` parameter 0 is `P`, "props type extracted
    * from props option". `$props` is `P & PublicProps` (or the defaults
-   * conditional when `MakeDefaultsOptional` is true). If that `$props` type is
-   * `any`, missing, or only a string index signature, read `P` instead.
+   * conditional when `MakeDefaultsOptional` is true). When runtime/decorator
+   * props are unavailable, read `P` directly. This covers the ordinary typed
+   * instance as well as cases where `$props` is `any` or index-eroded.
    * `PublicProps` (parameter 6) defaults to `P`. `Defaults` (parameter 7) is
    * not the props object.
    */
@@ -611,10 +612,6 @@ function getProps(
     const instanceType = resolveInstanceType(type);
     const publicInstance = findComponentPublicInstance(type) ?? findComponentPublicInstance(instanceType);
     if (!publicInstance) {
-      return [];
-    }
-
-    if (!isUnusablePropsType(readPropsType(instanceType, '$props'))) {
       return [];
     }
 
@@ -694,19 +691,6 @@ function getProps(
     };
 
     return visit(root);
-  }
-
-  function readPropsType(type: ts.Type, propertyName: string): ts.Type | undefined {
-    const propSymbol = checker.getPropertyOfType(type, propertyName);
-    if (!propSymbol) {
-      return undefined;
-    }
-    const node =
-      getNodeFromSymbol(propSymbol) ?? type.symbol?.valueDeclaration ?? defaultExportType.symbol?.valueDeclaration;
-    if (!node) {
-      return undefined;
-    }
-    return checker.getTypeOfSymbolAtLocation(propSymbol, node);
   }
 
   function isUnusablePropsType(propsType: ts.Type | undefined): boolean {
