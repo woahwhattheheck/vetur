@@ -28,3 +28,16 @@ export type ComponentPublicInstance<
   $options: Options;
   $emit: (event: E, ...args: any[]) => void;
 } & P;
+
+/**
+ * Props-relevant slice of Vue 2.6/2.7 `CombinedVueInstance`.
+ * Props remains parameter 4; Vue 2.7 only appends setup/mixin parameters.
+ */
+export type CombinedVueInstance<
+  Instance = {},
+  Data = {},
+  Methods = {},
+  Computed = {},
+  Props = {},
+  SetupBindings = {}
+> = Data & Methods & Computed & Props & Instance & SetupBindings;
