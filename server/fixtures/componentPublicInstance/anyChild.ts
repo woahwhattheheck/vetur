@@ -6,7 +6,7 @@ export interface ChildProps {
 }
 
 declare const PublicInstanceCtor: {
-  new (): ComponentPublicInstance<ChildProps, {}, {}, {}, {}, {}, any>;
+  new (): ComponentPublicInstance<ChildProps>;
 };
 
 export default class AnyChild extends PublicInstanceCtor {}
