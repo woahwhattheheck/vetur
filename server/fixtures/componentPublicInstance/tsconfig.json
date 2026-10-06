@@ -18,6 +18,7 @@
     "indexChild.ts",
     "objectChild.ts",
     "emptyChild.ts",
-    "plainClassChild.ts"
+    "plainClassChild.ts",
+    "vue2Child.ts"
   ]
 }
