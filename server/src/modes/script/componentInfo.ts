@@ -157,7 +157,9 @@ function getDecorators(
   tsModule: RuntimeLibrary['typescript'],
   node: ts.MethodDeclaration | ts.PropertyDeclaration | undefined
 ) {
-  if (!node) return undefined;
+  if (!node) {
+    return undefined;
+  }
   return tsModule.getDecorators?.(node) ?? node.decorators;
 }
 
@@ -347,9 +349,10 @@ function getProps(
   checker: ts.TypeChecker,
   vueVersion: VueVersion
 ): PropInfo[] | undefined {
+  const declaredProps = getClassAndObjectInfo(tsModule, defaultExportType, checker, getClassProps, getObjectProps);
   const result: PropInfo[] = markPropBoundToModel(
     defaultExportType,
-    getClassAndObjectInfo(tsModule, defaultExportType, checker, getClassProps, getObjectProps)
+    declaredProps.length > 0 ? declaredProps : getPropsFromComponentPublicInstance(defaultExportType)
   );
 
   return result.length === 0 ? undefined : result;
@@ -594,6 +597,126 @@ function getProps(
     }
 
     return undefined;
+  }
+
+  /**
+   * Vue 3 `ComponentPublicInstance` parameter 0 is `P`, "props type extracted
+   * from props option". `$props` is `P & PublicProps` (or the defaults
+   * conditional when `MakeDefaultsOptional` is true). If that `$props` type is
+   * `any`, missing, or only a string index signature, read `P` instead.
+   * `PublicProps` (parameter 6) defaults to `P`. `Defaults` (parameter 7) is
+   * not the props object.
+   */
+  function getPropsFromComponentPublicInstance(type: ts.Type): PropInfo[] {
+    const instanceType = resolveInstanceType(type);
+    const publicInstance = findComponentPublicInstance(type) ?? findComponentPublicInstance(instanceType);
+    if (!publicInstance) {
+      return [];
+    }
+
+    if (!isUnusablePropsType(readPropsType(instanceType, '$props'))) {
+      return [];
+    }
+
+    const propsType = publicInstance.aliasTypeArguments?.[0];
+    if (!propsType || isUnusablePropsType(propsType)) {
+      return [];
+    }
+
+    const fallbackNode =
+      propsType.symbol?.valueDeclaration ??
+      publicInstance.aliasSymbol?.declarations?.[0] ??
+      defaultExportType.symbol?.valueDeclaration;
+
+    return checker.getPropertiesOfType(propsType).map(propSymbol => {
+      const node = getNodeFromSymbol(propSymbol) ?? fallbackNode;
+      const propType = node ? checker.getTypeOfSymbolAtLocation(propSymbol, node) : undefined;
+
+      return {
+        name: propSymbol.name,
+        hasObjectValidator: false,
+        required: (propSymbol.flags & tsModule.SymbolFlags.Optional) === 0,
+        isBoundToModel: false,
+        typeString: propType ? checker.typeToString(propType) : undefined,
+        documentation: buildDocumentation(tsModule, propSymbol, checker)
+      };
+    });
+  }
+
+  function resolveInstanceType(type: ts.Type): ts.Type {
+    const signatures = type.getConstructSignatures();
+    if (signatures.length === 0) {
+      return type;
+    }
+    return checker.getReturnTypeOfSignature(signatures[signatures.length - 1]);
+  }
+
+  function findComponentPublicInstance(root: ts.Type): ts.Type | undefined {
+    const seen = new Set<ts.Type>();
+
+    const visit = (type: ts.Type | undefined): ts.Type | undefined => {
+      if (!type || seen.has(type)) {
+        return undefined;
+      }
+      seen.add(type);
+
+      if (type.aliasSymbol?.name === 'ComponentPublicInstance') {
+        return type;
+      }
+
+      if (type.flags & (tsModule.TypeFlags.Union | tsModule.TypeFlags.Intersection)) {
+        const parts = (type as ts.UnionOrIntersectionType).types;
+        for (const part of parts) {
+          const found = visit(part);
+          if (found) {
+            return found;
+          }
+        }
+      }
+
+      const bases = type.getBaseTypes?.() ?? [];
+      for (const base of bases) {
+        const found = visit(base);
+        if (found) {
+          return found;
+        }
+      }
+
+      const signatures = type.getConstructSignatures();
+      for (const signature of signatures) {
+        const found = visit(checker.getReturnTypeOfSignature(signature));
+        if (found) {
+          return found;
+        }
+      }
+
+      return undefined;
+    };
+
+    return visit(root);
+  }
+
+  function readPropsType(type: ts.Type, propertyName: string): ts.Type | undefined {
+    const propSymbol = checker.getPropertyOfType(type, propertyName);
+    if (!propSymbol) {
+      return undefined;
+    }
+    const node =
+      getNodeFromSymbol(propSymbol) ?? type.symbol?.valueDeclaration ?? defaultExportType.symbol?.valueDeclaration;
+    if (!node) {
+      return undefined;
+    }
+    return checker.getTypeOfSymbolAtLocation(propSymbol, node);
+  }
+
+  function isUnusablePropsType(propsType: ts.Type | undefined): boolean {
+    if (!propsType || (propsType.flags & tsModule.TypeFlags.Any) !== 0) {
+      return true;
+    }
+    if (!propsType.getStringIndexType()) {
+      return false;
+    }
+    return checker.getPropertiesOfType(propsType).length === 0;
   }
 }
 
