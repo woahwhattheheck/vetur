@@ -83,7 +83,7 @@ export function getComponentInfo(
         definition: c.definition,
         global: true,
         info: c.defaultExportNode
-          ? analyzeDefaultExportExpr(tsModule, c.defaultExportNode, checker, vueVersion)
+          ? analyzeDefaultExportExpr(tsModule, c.defaultExportNode, checker, vueVersion, c.defaultExportType)
           : undefined
       }))
     ];
