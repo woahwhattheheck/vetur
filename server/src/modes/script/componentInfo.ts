@@ -60,7 +60,7 @@ export function getComponentInfo(
         definition: c.definition,
         global: false,
         info: c.defaultExportNode
-          ? analyzeDefaultExportExpr(tsModule, c.defaultExportNode, checker, vueVersion)
+          ? analyzeDefaultExportExpr(tsModule, c.defaultExportNode, checker, vueVersion, c.defaultExportType)
           : undefined
       });
     });
@@ -96,13 +96,14 @@ export function analyzeDefaultExportExpr(
   tsModule: RuntimeLibrary['typescript'],
   defaultExportNode: ts.Node,
   checker: ts.TypeChecker,
-  vueVersion: VueVersion
+  vueVersion: VueVersion,
+  componentExportType?: ts.Type
 ): VueFileInfo {
   const defaultExportType = checker.getTypeAtLocation(defaultExportNode);
 
   const insertInOptionAPIPos = getInsertInOptionAPIPos(tsModule, defaultExportType, checker);
   const emits = getEmits(tsModule, defaultExportType, checker);
-  const props = getProps(tsModule, defaultExportType, checker, vueVersion);
+  const props = getProps(tsModule, defaultExportType, checker, vueVersion, componentExportType);
   const data = getData(tsModule, defaultExportType, checker);
   const computed = getComputed(tsModule, defaultExportType, checker);
   const methods = getMethods(tsModule, defaultExportType, checker);
@@ -347,12 +348,13 @@ function getProps(
   tsModule: RuntimeLibrary['typescript'],
   defaultExportType: ts.Type,
   checker: ts.TypeChecker,
-  vueVersion: VueVersion
+  vueVersion: VueVersion,
+  componentExportType?: ts.Type
 ): PropInfo[] | undefined {
   const declaredProps = getClassAndObjectInfo(tsModule, defaultExportType, checker, getClassProps, getObjectProps);
   const result: PropInfo[] = markPropBoundToModel(
     defaultExportType,
-    declaredProps.length > 0 ? declaredProps : getPropsFromTypedVueInstance(defaultExportType)
+    declaredProps.length > 0 ? declaredProps : getPropsFromTypedVueInstance(defaultExportType, componentExportType)
   );
 
   return result.length === 0 ? undefined : result;
@@ -608,24 +610,22 @@ function getProps(
    *
    * Runtime/decorator declarations stay authoritative when present.
    */
-  function getPropsFromTypedVueInstance(type: ts.Type): PropInfo[] {
+  function getPropsFromTypedVueInstance(type: ts.Type, exportedType?: ts.Type): PropInfo[] {
     const aliasName = vueVersion === VueVersion.V30 ? 'ComponentPublicInstance' : 'CombinedVueInstance';
     const propsIndex = vueVersion === VueVersion.V30 ? 0 : 4;
+    const exportedPropsType = exportedType ? getPropsTypeFromComponentExport(exportedType) : undefined;
     const instanceType = resolveInstanceType(type);
     const typedInstance =
       findTypedVueInstance(type, aliasName) ?? findTypedVueInstance(instanceType, aliasName);
-    if (!typedInstance) {
-      return [];
-    }
-
-    const propsType = typedInstance.aliasTypeArguments?.[propsIndex];
+    const propsType = exportedPropsType ?? typedInstance?.aliasTypeArguments?.[propsIndex];
     if (!propsType || isUnusablePropsType(propsType)) {
       return [];
     }
 
     const fallbackNode =
       propsType.symbol?.valueDeclaration ??
-      typedInstance.aliasSymbol?.declarations?.[0] ??
+      typedInstance?.aliasSymbol?.declarations?.[0] ??
+      exportedType?.symbol?.valueDeclaration ??
       defaultExportType.symbol?.valueDeclaration;
 
     return checker.getPropertiesOfType(propsType).map(propSymbol => {
@@ -641,6 +641,32 @@ function getProps(
         documentation: buildDocumentation(tsModule, propSymbol, checker)
       };
     });
+  }
+
+  function getPropsTypeFromComponentExport(componentType: ts.Type): ts.Type | undefined {
+    if (vueVersion === VueVersion.V30) {
+      if (componentType.aliasSymbol?.name === 'DefineComponent') {
+        return componentType.aliasTypeArguments?.[0];
+      }
+      if (componentType.aliasSymbol?.name === 'ComponentPublicInstance') {
+        return componentType.aliasTypeArguments?.[0];
+      }
+      return undefined;
+    }
+
+    if (componentType.aliasSymbol?.name === 'ExtendedVue') {
+      return componentType.aliasTypeArguments?.[4];
+    }
+    if (componentType.aliasSymbol?.name === 'CombinedVueInstance') {
+      return componentType.aliasTypeArguments?.[4];
+    }
+
+    const typeArguments = checker.getTypeArguments?.(componentType as ts.TypeReference) ?? [];
+    const instanceType = typeArguments[0];
+    if (instanceType?.aliasSymbol?.name === 'CombinedVueInstance') {
+      return instanceType.aliasTypeArguments?.[4];
+    }
+    return undefined;
   }
 
   function resolveInstanceType(type: ts.Type): ts.Type {
