@@ -56,7 +56,7 @@ function loadParentInfo() {
 }
 
 suite('ComponentPublicInstance props', () => {
-  test('reads Props from the ComponentPublicInstance type argument when $props is unusable', function () {
+  test('reads Props from the ComponentPublicInstance type argument', function () {
     this.timeout(20000);
     const info = loadParentInfo();
     const children = info?.componentInfo.childComponents ?? [];
