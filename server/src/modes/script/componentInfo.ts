@@ -617,7 +617,19 @@ function getProps(
     const instanceType = resolveInstanceType(type);
     const typedInstance =
       findTypedVueInstance(type, aliasName) ?? findTypedVueInstance(instanceType, aliasName);
-    const propsType = exportedPropsType ?? typedInstance?.aliasTypeArguments?.[propsIndex];
+    const publicPropsSymbol =
+      vueVersion === VueVersion.V30 && typedInstance
+        ? checker.getPropertyOfType(typedInstance, '$props')
+        : undefined;
+    const publicPropsNode = publicPropsSymbol && getNodeFromSymbol(publicPropsSymbol);
+    const publicPropsType =
+      publicPropsSymbol && publicPropsNode
+        ? checker.getTypeOfSymbolAtLocation(publicPropsSymbol, publicPropsNode)
+        : undefined;
+    // Vue 3's resolved $props includes PublicProps and optional defaulted props.
+    const propsType = !isUnusablePropsType(publicPropsType)
+      ? publicPropsType
+      : exportedPropsType ?? typedInstance?.aliasTypeArguments?.[propsIndex];
     if (!propsType || isUnusablePropsType(propsType)) {
       return [];
     }
